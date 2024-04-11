@@ -3,18 +3,11 @@ import cv2
 import numpy as np
 from sklearn.cluster import KMeans
 
-
-from invokeai.app.services.image_records.image_records_common import ImageCategory, ResourceOrigin
-from invokeai.app.invocations.baseinvocation import (
+from invokeai.invocation_api import (
     BaseInvocation,
     InputField,
     invocation,
     InvocationContext,
-    WithMetadata,
-    WithWorkflow,
-)
-
-from invokeai.app.invocations.primitives import (
     ImageField,
     ColorField,
     ColorOutput
@@ -27,13 +20,13 @@ from invokeai.app.invocations.primitives import (
     category="image",
     version="1.0.0",
 )
-class ImageDominantColorInvocation(BaseInvocation, WithMetadata, WithWorkflow):
+class ImageDominantColorInvocation(BaseInvocation):
     """Get dominant color from the image"""
     image: ImageField = InputField(default=None, description="Input image")
 
 
     def invoke(self, context: InvocationContext) -> ColorOutput:
-        image = context.services.images.get_pil_image(self.image.image_name)   
+        image = context.images.get_pil(self.image.image_name)
 
         cv_image = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
 
@@ -44,7 +37,6 @@ class ImageDominantColorInvocation(BaseInvocation, WithMetadata, WithWorkflow):
         dominant_color_hsv = kmeans.cluster_centers_[0]
 
         dominant = cv2.cvtColor(np.uint8([[dominant_color_hsv]]), cv2.COLOR_HSV2RGB)[0][0]
-
 
         return ColorOutput(
             color=ColorField(r=dominant[2], g=dominant[1], b=dominant[0], a=255)
@@ -59,15 +51,15 @@ class ImageDominantColorInvocation(BaseInvocation, WithMetadata, WithWorkflow):
     category="image",
     version="1.0.0",
 )
-class ImageDominantColorFromMaskInvocation(BaseInvocation, WithMetadata, WithWorkflow):
+class ImageDominantColorFromMaskInvocation(BaseInvocation):
     """Get dominant color from the image using a mask"""
     image: ImageField = InputField(default=None, description="Input image")
     mask: ImageField = InputField(default=None, description="Mask image")
 
 
     def invoke(self, context: InvocationContext) -> ColorOutput:
-        image = context.services.images.get_pil_image(self.image.image_name)  
-        mask = context.services.images.get_pil_image(self.mask.image_name)  
+        image = context.images.get_pil(self.image.image_name)
+        mask = context.images.get_pil(self.mask.image_name)  
 
         if image.size != mask.size:
             mask = mask.resize(image.size)
@@ -84,7 +76,6 @@ class ImageDominantColorFromMaskInvocation(BaseInvocation, WithMetadata, WithWor
         dominant_color_hsv = kmeans.cluster_centers_[0]
 
         dominant = cv2.cvtColor(np.uint8([[dominant_color_hsv]]), cv2.COLOR_HSV2RGB)[0][0]
-
 
         return ColorOutput(
             color=ColorField(r=dominant[2], g=dominant[1], b=dominant[0], a=255)
