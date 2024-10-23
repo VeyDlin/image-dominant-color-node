@@ -1,7 +1,6 @@
-from PIL import ImageOps, Image
 import cv2
 import numpy as np
-from sklearn.cluster import KMeans
+import random
 
 from invokeai.invocation_api import (
     BaseInvocation,
@@ -18,65 +17,94 @@ from invokeai.invocation_api import (
     title="Image Dominant Color",
     tags=["image", "color"],
     category="image",
-    version="1.0.0",
+    version="1.0.1",
 )
 class ImageDominantColorInvocation(BaseInvocation):
     """Get dominant color from the image"""
     image: ImageField = InputField(default=None, description="Input image")
 
-
     def invoke(self, context: InvocationContext) -> ColorOutput:
         image = context.images.get_pil(self.image.image_name)
 
+        # Resize the image to speed up processing
+        image.thumbnail((512, 512))
+
         cv_image = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
 
-        pixels_hsv = cv2.cvtColor(cv_image.reshape(-1, 1, 3), cv2.COLOR_RGB2HSV).reshape(-1, 3)
+        pixels = cv_image.reshape(-1, 3)
+        num_clusters = 3
 
-        kmeans = KMeans(n_clusters=1, n_init=10)
-        kmeans.fit(pixels_hsv)
-        dominant_color_hsv = kmeans.cluster_centers_[0]
+        # Initialize cluster centers randomly
+        cluster_centers = random.sample(list(pixels), num_clusters)
+        cluster_centers = np.array(cluster_centers, dtype=np.float32)
 
-        dominant = cv2.cvtColor(np.uint8([[dominant_color_hsv]]), cv2.COLOR_HSV2RGB)[0][0]
+        for _ in range(10):
+            # Calculate distances from each pixel to each cluster center
+            distances = np.linalg.norm(pixels[:, np.newaxis] - cluster_centers, axis=2)
+            labels = np.argmin(distances, axis=1)
+
+            # Update cluster centers
+            new_cluster_centers = np.array([pixels[labels == i].mean(axis=0) for i in range(num_clusters)])
+
+            # Check for convergence
+            if np.linalg.norm(new_cluster_centers - cluster_centers) < 1e-2:
+                break
+
+            cluster_centers = new_cluster_centers
+
+        dominant_color = cluster_centers[np.argmax([np.sum(labels == i) for i in range(num_clusters)])]
 
         return ColorOutput(
-            color=ColorField(r=dominant[2], g=dominant[1], b=dominant[0], a=255)
+            color=ColorField(r=int(dominant_color[2]), g=int(dominant_color[1]), b=int(dominant_color[0]), a=255)
         )
-    
-
 
 @invocation(
     "image_dominant_color_from_mask",
     title="Image Dominant Color From Mask",
     tags=["image", "color"],
     category="image",
-    version="1.0.0",
+    version="1.0.1",
 )
 class ImageDominantColorFromMaskInvocation(BaseInvocation):
     """Get dominant color from the image using a mask"""
     image: ImageField = InputField(default=None, description="Input image")
     mask: ImageField = InputField(default=None, description="Mask image")
 
-
     def invoke(self, context: InvocationContext) -> ColorOutput:
         image = context.images.get_pil(self.image.image_name)
         mask = context.images.get_pil(self.mask.image_name)  
-
-        if image.size != mask.size:
-            mask = mask.resize(image.size)
         
+        # Resize the image to speed up processing
+        image.thumbnail((512, 512))
+        mask = mask.resize(image.size)
+
         cv_image = cv2.cvtColor(np.array(image.convert('RGB')), cv2.COLOR_RGB2BGR)
         cv_mask = np.array(mask.convert('L'), dtype=np.uint8) 
         
         masked = cv2.bitwise_and(cv_image, cv_image, mask=cv_mask)
-        masked_pixels = masked[cv_mask != 0].reshape(-1, 3)
-        masked_pixels_hsv = cv2.cvtColor(masked_pixels.reshape(-1, 1, 3), cv2.COLOR_RGB2HSV).reshape(-1, 3)
+        pixels = masked[cv_mask != 0].reshape(-1, 3)
+        num_clusters = 3
 
-        kmeans = KMeans(n_clusters=1, n_init=10)
-        kmeans.fit(masked_pixels_hsv)
-        dominant_color_hsv = kmeans.cluster_centers_[0]
+        # Initialize cluster centers randomly
+        cluster_centers = random.sample(list(pixels), num_clusters)
+        cluster_centers = np.array(cluster_centers, dtype=np.float32)
 
-        dominant = cv2.cvtColor(np.uint8([[dominant_color_hsv]]), cv2.COLOR_HSV2RGB)[0][0]
+        for _ in range(10):
+            # Calculate distances from each pixel to each cluster center
+            distances = np.linalg.norm(pixels[:, np.newaxis] - cluster_centers, axis=2)
+            labels = np.argmin(distances, axis=1)
+
+            # Update cluster centers
+            new_cluster_centers = np.array([pixels[labels == i].mean(axis=0) for i in range(num_clusters)])
+
+            # Check for convergence
+            if np.linalg.norm(new_cluster_centers - cluster_centers) < 1e-2:
+                break
+
+            cluster_centers = new_cluster_centers
+
+        dominant_color = cluster_centers[np.argmax([np.sum(labels == i) for i in range(num_clusters)])]
 
         return ColorOutput(
-            color=ColorField(r=dominant[2], g=dominant[1], b=dominant[0], a=255)
+            color=ColorField(r=int(dominant_color[2]), g=int(dominant_color[1]), b=int(dominant_color[0]), a=255)
         )
